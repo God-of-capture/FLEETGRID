@@ -1,0 +1,127 @@
+{
+  "theme": "light",
+  "archetype": "Archetype 4 (Swiss & High-Contrast)",
+  "emotional_tone": "Authority, Clarity, Objective, and Precision",
+  "fonts": {
+    "headings": "Chivo",
+    "body": "IBM Plex Sans",
+    "rules": {
+      "H1": "text-4xl sm:text-5xl tracking-tight leading-none font-bold",
+      "H2": "text-2xl sm:text-3xl tracking-tight leading-none font-semibold",
+      "H3": "text-xl sm:text-2xl tracking-tight leading-snug font-medium",
+      "H4": "text-lg sm:text-xl font-medium",
+      "body": "text-base leading-relaxed",
+      "labels": "text-xs tracking-[0.2em] uppercase font-semibold text-slate-500",
+      "hierarchy_gap": "The jump between a heading and its subheading must not exceed 2 Tailwind steps."
+    }
+  },
+  "colors": {
+    "background": {
+      "primary": "#FFFFFF",
+      "secondary": "#F8FAFC",
+      "tertiary": "#F1F5F9"
+    },
+    "text": {
+      "primary": "#0A0A0A",
+      "secondary": "#475569",
+      "muted": "#94A3B8"
+    },
+    "brand": {
+      "primary": "#002FA7",
+      "primary_hover": "#00227A",
+      "accent": "#0A0A0A"
+    },
+    "status": {
+      "pending": "#F59E0B",
+      "in_transit": "#3B82F6",
+      "delivered": "#10B981",
+      "alert_failed": "#EF4444"
+    },
+    "borders": "#E2E8F0",
+    "rules": {
+      "contrast": "Text must meet APCA standards. Normal text min 4.5:1, large text 3:1.",
+      "hover": "Always explicitly set text color on hover (e.g., hover:bg-slate-900 hover:text-white).",
+      "tinting": "Never use pure #000000 or #808080 without a tint, except for Obsidian (#0A0A0A) which acts as our high-contrast base."
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "Generous Spacing with Strict Hierarchy. Use Grid Borders for data sections to expose the skeleton.",
+    "dashboard_grid": {
+      "mode": "The 'Control Room' Grid",
+      "base": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4",
+      "gap": "gap-4 md:gap-6",
+      "widgets": {
+        "summary": "col-span-1",
+        "primary_data": "col-span-1 md:col-span-2 lg:col-span-3",
+        "feed_list": "col-span-1 row-span-2"
+      }
+    },
+    "alignment": {
+      "headings": "Left-align dense content, center only if it improves visual hierarchy in heroes.",
+      "data": "Left-align for readability, right-align numeric values in tables."
+    },
+    "spacing_scale": "p-4, p-6, p-8 for containers. Internal padding must be p-6 or p-8 to prevent text collision."
+  },
+  "surfaces_and_components": {
+    "cards": {
+      "style": "Flat solid surfaces, subtle roundness (max 8px border-radius), 1px border (border-border), no shadows.",
+      "hover": "Slight lift (-translate-y-1), subtle shadow (shadow-md), border color darkens."
+    },
+    "headers": {
+      "style": "Crystal Glass for sticky elements (backdrop-blur-xl bg-white/70, border-b border-slate-200/50) or solid background with hard bottom border."
+    },
+    "buttons": {
+      "primary": "bg-[#002FA7] text-white hover:bg-[#00227A] rounded-md px-6 py-2 transition-all duration-200",
+      "secondary": "bg-white text-[#0A0A0A] border border-[#0A0A0A]/10 hover:bg-slate-50 rounded-md px-6 py-2 transition-all duration-200",
+      "destructive": "bg-[#EF4444] text-white hover:bg-[#DC2626]"
+    },
+    "inputs": {
+      "style": "Shadcn components heavily customized. Flat, crisp borders (border-slate-300), focus:ring-2 focus:ring-[#002FA7]/20 focus:border-[#002FA7]."
+    },
+    "tables": {
+      "style": "Shadcn table. Clean row separators, hover:bg-slate-50, distinct header styling with overline text."
+    },
+    "maps": {
+      "style": "React-Leaflet or similar. Use a monochrome/grayscale tile layer (like CartoDB Positron) to blend with the UI, highlight markers and routes using brand and status colors."
+    }
+  },
+  "motion_and_interactions": {
+    "hover": "All interactive elements must have clear hover and click/press states.",
+    "transitions": "Use specific properties (transition-transform duration-200 ease-out, transition-colors).",
+    "accessibility": "Respect prefers-reduced-motion. Use aria-hidden on purely decorative elements."
+  },
+  "icons_and_assets": {
+    "library": "@phosphor-icons/react",
+    "installation": "yarn add @phosphor-icons/react",
+    "style": "Use regular or duotone weights for dashboard density."
+  },
+  "testing": {
+    "requirement": "All interactive and key informational elements MUST include a data-testid attribute.",
+    "convention": "kebab-case, role-based (e.g., data-testid='login-form-submit-button')"
+  },
+  "media_urls": {
+    "delivery_van": {
+      "url": "https://images.unsplash.com/photo-1775637483812-25ce67beeb3d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwzfHxkZWxpdmVyeSUyMHZhbiUyMG1vZGVybnxlbnwwfHx8fDE3ODE3MTcwNDR8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Modern black delivery van, ideal for fleet placeholder or landing page sections.",
+      "category": "hero_or_feature"
+    },
+    "warehouse_logistics": {
+      "url": "https://images.unsplash.com/photo-1587293852726-70cdb56c2866?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjV8MHwxfHNlYXJjaHwxfHx3YXJlaG91c2UlMjBsb2dpc3RpY3N8ZW58MHx8fHwxNzgxNzE3MDQzfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Warehouse and cardboard boxes, useful for organization or settings pages.",
+      "category": "background_or_feature"
+    },
+    "driver_smiling": {
+      "url": "https://images.pexels.com/photos/7363095/pexels-photo-7363095.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Smiling delivery driver in uniform, perfect for driver portal login or profile section.",
+      "category": "portrait_or_auth"
+    }
+  },
+  "instructions_to_main_agent": {
+    "file_extensions": "Use .js and .jsx files for React components. Do not use .tsx or TypeScript since the project is JS-based.",
+    "shadcn_customization": "Heavily customize Shadcn components to follow the 'Swiss & High-Contrast' archetype. Strip out generic styles, apply the defined fonts (Chivo for headings, IBM Plex Sans for body), and use the high-contrast color palette.",
+    "dashboard_layout": "Implement the 'Control Room' grid for dashboards. Avoid putting everything in identical cards; use grid borders and flat design to increase data density.",
+    "map_integration": "For the live tracking map, ensure the map tiles are styled neutrally (monochrome) so that route lines and driver pins (using brand/status colors) stand out clearly.",
+    "accessibility": "Follow APCA contrast rules. Ensure all interactive components have proper focus states and hover transitions.",
+    "testing_attributes": "Add data-testid attributes to all buttons, links, inputs, and major layout sections."
+  }
+}
