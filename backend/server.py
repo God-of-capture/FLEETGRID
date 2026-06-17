@@ -114,18 +114,21 @@ async def register_org(payload: RegisterOrgRequest):
         hashed_password=hash_password(payload.password),
         roles=[Role.ORG_OWNER],
         organization_id=org.id,
-        email_verified=False,
+        email_verified=True,
     )
     await db.users.insert_one(user.model_dump())
     await log_audit("org.created", user, "organization", org.id)
 
-    # Send verification email
-    token = secrets.token_urlsafe(40)
-    await db.email_tokens.insert_one({
-        "token": token, "user_id": user.id, "type": "verify",
-        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
-    })
-    await emailer.send_verification_email(user.email, user.full_name, token)
+    # Verification email is best-effort (non-blocking)
+    try:
+        token = secrets.token_urlsafe(40)
+        await db.email_tokens.insert_one({
+            "token": token, "user_id": user.id, "type": "verify",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+        })
+        await emailer.send_verification_email(user.email, user.full_name, token)
+    except Exception:
+        pass
 
     access = create_access_token(user.id, org.id, [r.value for r in user.roles])
     return TokenResponse(access_token=access, user=public_user(user), organization=org)
@@ -141,8 +144,7 @@ async def login(payload: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User is deactivated")
-    if not user.email_verified:
-        raise HTTPException(status_code=403, detail="Email not verified. Please check your inbox or request a new verification link.")
+    # Email verification temporarily bypassed
 
     org_doc = None
     if user.organization_id:
@@ -880,6 +882,8 @@ async def startup():
     await db.users.update_many(
         {"email_verified": {"$exists": False}}, {"$set": {"email_verified": True}}
     )
+    # Verification bypass: mark all users verified (Feb 2026 — until SMTP issue resolved)
+    await db.users.update_many({"email_verified": False}, {"$set": {"email_verified": True}})
 
     # Seed demo data if empty
     if await db.organizations.count_documents({}) == 0:

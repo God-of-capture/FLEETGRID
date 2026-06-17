@@ -30,8 +30,8 @@ export default function Register() {
     setSubmitting(true);
     try {
       await registerOrg(f);
-      setSent(true);
-      toast.success("Workspace created. Check your email to verify.");
+      toast.success("Workspace created. Welcome aboard.");
+      navigate("/app/dashboard");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Registration failed");
     } finally {
