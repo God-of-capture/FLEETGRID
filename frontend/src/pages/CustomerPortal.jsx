@@ -23,9 +23,12 @@ export default function CustomerPortal() {
         </div>
       </header>
       <div className="max-w-4xl mx-auto p-6 space-y-5">
-        <div>
-          <div className="label-overline">Hi {user?.full_name?.split(" ")[0]}</div>
-          <h1 className="font-heading text-3xl font-bold mt-1">Your shipments</h1>
+        <div className="flex items-end justify-between">
+          <div>
+            <div className="label-overline">Hi {user?.full_name?.split(" ")[0]}</div>
+            <h1 className="font-heading text-3xl font-bold mt-1">Your shipments</h1>
+          </div>
+          <Link to="/send-parcel"><Button className="btn-brand" data-testid="send-parcel-cta">+ Send a parcel</Button></Link>
         </div>
         {items.length === 0 && <div className="bg-white border border-slate-200 p-10 text-center text-sm text-slate-500">No shipments.</div>}
         <div className="space-y-3">

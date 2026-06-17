@@ -20,6 +20,7 @@ import Audit from "./pages/Audit";
 import Analytics from "./pages/Analytics";
 import DriverPortal from "./pages/DriverPortal";
 import CustomerPortal from "./pages/CustomerPortal";
+import SendParcel from "./pages/SendParcel";
 import PublicTracking from "./pages/PublicTracking";
 import VerifyEmail from "./pages/VerifyEmail";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -61,6 +62,9 @@ function App() {
           {/* Customer portal */}
           <Route path="/portal" element={
             <ProtectedRoute roles={["customer"]}><CustomerPortal /></ProtectedRoute>
+          } />
+          <Route path="/send-parcel" element={
+            <ProtectedRoute roles={["customer"]}><SendParcel /></ProtectedRoute>
           } />
 
           {/* Operator app (org_owner / ops_manager / dispatcher) */}

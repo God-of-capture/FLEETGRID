@@ -732,6 +732,46 @@ async def list_audit(user: User = Depends(require_roles([Role.ORG_OWNER]))):
     return [AuditLog(**d) async for d in cursor]
 
 
+@api.post("/customer/send-parcel", response_model=Delivery)
+async def customer_send_parcel(payload: DeliveryCreate, user: User = Depends(get_current_user)):
+    """A logged-in customer creates an on-demand parcel for themselves."""
+    is_customer = any((r.value if hasattr(r, "value") else r) == Role.CUSTOMER.value for r in user.roles)
+    if not is_customer:
+        raise HTTPException(status_code=403, detail="Only customers can use this endpoint")
+    # Vehicle weight gate (2W ≤ 5kg, 4W ≤ 10kg)
+    vt = (payload.package_description or "").lower()
+    w = float(payload.weight_kg or 0)
+    if "two_wheeler" in vt and w > 5:
+        raise HTTPException(status_code=400, detail="Two-wheeler max 5 kg")
+    if "four_wheeler" in vt and w > 10:
+        raise HTTPException(status_code=400, detail="Four-wheeler max 10 kg")
+    # Ensure customer record exists
+    cust = await db.customers.find_one(
+        {"organization_id": user.organization_id, "email": user.email}, {"_id": 0}
+    )
+    if not cust:
+        new_c = Customer(organization_id=user.organization_id, name=user.full_name,
+                         phone=user.phone or "", email=user.email)
+        await db.customers.insert_one(new_c.model_dump())
+        customer_id, customer_name = new_c.id, new_c.name
+    else:
+        customer_id, customer_name = cust["id"], cust["name"]
+
+    data = payload.model_dump(exclude={"customer_id", "customer_name", "customer_phone",
+                                       "customer_email", "save_customer"})
+    data["service_type"] = "on_demand"
+    d = Delivery(
+        organization_id=user.organization_id,
+        tracking_code=gen_tracking_code(),
+        customer_id=customer_id, customer_name=customer_name,
+        timeline=[StatusEvent(status=DeliveryStatus.PENDING, note="Booking created by customer")],
+        **data,
+    )
+    await db.deliveries.insert_one(d.model_dump())
+    await log_audit("delivery.customer_self_booked", user, "delivery", d.id)
+    return d
+
+
 # ===================== GEOCODING (OSM Nominatim) =====================
 import httpx  # noqa: E402
 
