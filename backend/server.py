@@ -732,12 +732,44 @@ async def list_audit(user: User = Depends(require_roles([Role.ORG_OWNER]))):
     return [AuditLog(**d) async for d in cursor]
 
 
+@api.post("/auth/signup-individual", response_model=TokenResponse)
+async def signup_individual(payload: RegisterOrgRequest):
+    if await db.users.find_one({"email": payload.owner_email.lower()}):
+        raise HTTPException(status_code=400, detail="Email already registered")
+    org = Organization(name=f"Personal · {payload.owner_full_name}", slug=f"ind-{secrets.token_hex(4)}")
+    await db.organizations.insert_one(org.model_dump())
+    u = User(email=payload.owner_email.lower(), full_name=payload.owner_full_name,
+            hashed_password=hash_password(payload.password),
+            roles=[Role.INDIVIDUAL_CUSTOMER, Role.CUSTOMER],
+            organization_id=org.id, email_verified=True)
+    await db.users.insert_one(u.model_dump())
+    return TokenResponse(access_token=create_access_token(u.id, org.id, [r.value for r in u.roles]),
+                         user=public_user(u), organization=org)
+
+
+@api.get("/drivers/nearest")
+async def nearest_drivers(lat: float, lng: float, user: User = Depends(get_current_user)):
+    """Demo: returns up to 5 available drivers from any org with current_lat/lng set."""
+    cursor = db.drivers.find({"current_lat": {"$ne": None}, "status": "available"}, {"_id": 0}).limit(5)
+    return {"drivers": [{"id": d["id"], "name": d["full_name"], "lat": d["current_lat"],
+                         "lng": d["current_lng"], "rating": d.get("rating", 5.0)} async for d in cursor]}
+
+
 @api.post("/customer/send-parcel", response_model=Delivery)
 async def customer_send_parcel(payload: DeliveryCreate, user: User = Depends(get_current_user)):
     """A logged-in customer creates an on-demand parcel for themselves."""
-    is_customer = any((r.value if hasattr(r, "value") else r) == Role.CUSTOMER.value for r in user.roles)
+    is_customer = any((r.value if hasattr(r, "value") else r) in (Role.CUSTOMER.value, Role.INDIVIDUAL_CUSTOMER.value) for r in user.roles)
     if not is_customer:
         raise HTTPException(status_code=403, detail="Only customers can use this endpoint")
+    # Same-city check via reverse-geocode is heavy; demo: require pickup/drop within 30km (~same city)
+    import math
+    if payload.pickup_lat and payload.drop_lat:
+        R=6371; p1=math.radians(payload.pickup_lat); p2=math.radians(payload.drop_lat)
+        dp=math.radians(payload.drop_lat-payload.pickup_lat); dl=math.radians(payload.drop_lng-payload.pickup_lng)
+        a=math.sin(dp/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+        km=2*R*math.asin(math.sqrt(a))
+        if km>30:
+            raise HTTPException(status_code=400, detail=f"Intercity ({km:.1f} km) not yet supported")
     # Vehicle weight gate (2W ≤ 5kg, 4W ≤ 10kg)
     vt = (payload.package_description or "").lower()
     w = float(payload.weight_kg or 0)

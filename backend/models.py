@@ -21,6 +21,7 @@ class Role(str, Enum):
     DISPATCHER = "dispatcher"
     DRIVER = "driver"
     CUSTOMER = "customer"
+    INDIVIDUAL_CUSTOMER = "individual_customer"
 
 
 class DeliveryStatus(str, Enum):
