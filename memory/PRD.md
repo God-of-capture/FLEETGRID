@@ -18,6 +18,13 @@ Production-ready, enterprise-grade, multi-tenant Fleet & Delivery Management Saa
 - **Customer**: lightweight portal + public tracking page
 - **Super admin**: platform-wide (scaffolded; unscoped queries)
 
+## Implemented (Feb 2026 — v1.1)
+- **Email verification (blocking)**: new signups receive Resend email; login is blocked until verified. `/verify-email`, `/resend-verification`.
+- **Password reset**: `/forgot-password` + `/reset-password` flow with single-use 1-hour tokens; emails sent via Resend.
+- **Delivery status emails to customers**: out_for_delivery / delivered / failed transitions auto-email the customer (Resend) with a tracking link.
+- **Razorpay billing (India, INR)**: `/billing/plans`, `/billing/create-order`, `/billing/verify` (with signature verification), `/billing/history`. Frontend Settings → Billing renders 3 plans (Starter ₹4,999 / Growth ₹12,999 / Enterprise ₹49,999) and opens the official Razorpay Checkout modal. Successful payment switches org plan and is logged in audit.
+- Existing seeded users auto-migrated to email_verified=true so demo workflow is uninterrupted.
+
 ## Implemented (Feb 2026 — v1.0)
 - Multi-tenant org registration + login (`/auth/register`, `/auth/login`, `/auth/me`)
 - Vehicles CRUD (registration #, type, fuel, capacity, status)
