@@ -274,6 +274,7 @@ class Delivery(BaseModel):
     tracking_code: str
     customer_id: str
     customer_name: str
+    service_type: str = "shipping"
     pickup_address: str
     pickup_lat: Optional[float] = None
     pickup_lng: Optional[float] = None
@@ -287,6 +288,11 @@ class Delivery(BaseModel):
     weight_kg: float = 0
     cod_amount: float = 0
     instructions: Optional[str] = None
+    journey_date: Optional[str] = None
+    journey_time: Optional[str] = None
+    passengers: Optional[int] = None
+    round_trip: bool = False
+    return_date: Optional[str] = None
     status: DeliveryStatus = DeliveryStatus.PENDING
     timeline: List[StatusEvent] = []
     eta: Optional[str] = None
@@ -298,7 +304,14 @@ class Delivery(BaseModel):
 
 
 class DeliveryCreate(BaseModel):
-    customer_id: str
+    customer_id: Optional[str] = None
+    # Inline customer (used when customer_id not provided)
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_email: Optional[EmailStr] = None
+    save_customer: bool = False
+    # Service type: shipping (parcel) or travel (passenger)
+    service_type: str = "shipping"  # shipping | travel
     pickup_address: str
     pickup_lat: Optional[float] = None
     pickup_lng: Optional[float] = None
@@ -310,6 +323,12 @@ class DeliveryCreate(BaseModel):
     weight_kg: float = 0
     cod_amount: float = 0
     instructions: Optional[str] = None
+    # Travel-only
+    journey_date: Optional[str] = None
+    journey_time: Optional[str] = None
+    passengers: Optional[int] = None
+    round_trip: bool = False
+    return_date: Optional[str] = None
 
 
 class DeliveryAssign(BaseModel):

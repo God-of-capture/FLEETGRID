@@ -18,6 +18,13 @@ Production-ready, enterprise-grade, multi-tenant Fleet & Delivery Management Saa
 - **Customer**: lightweight portal + public tracking page
 - **Super admin**: platform-wide (scaffolded; unscoped queries)
 
+## Implemented (Feb 2026 — v1.2)
+- **Service type selector** (shipping vs travel) on every booking. Travel adds `journey_date/time`, `passengers`, `round_trip`, `return_date`. Shipping keeps weight/COD/package fields. Form dynamically swaps based on tab.
+- **Inline customer booking** for fleet owners: pick from saved directory OR enter name/phone/email inline. `save_customer` toggle auto-creates a permanent record; otherwise a temporary record is attached to the booking. Existing `customer_id` flow still works (backward-compat).
+- **Address autocomplete & validation** via `/api/geocode` proxying **OpenStreetMap Photon** (free, no key). Raw lat/lng inputs removed from the UI — addresses must be picked from suggestions, system fills coordinates automatically. Rejects submission without valid pickup+drop selections.
+- Priority field expanded to include `express` and `same_day` (per shipping-service spec).
+- All existing tests pass (15/15) — zero regression.
+
 ## Implemented (Feb 2026 — v1.1)
 - **Email verification (blocking)**: new signups receive Resend email; login is blocked until verified. `/verify-email`, `/resend-verification`.
 - **Password reset**: `/forgot-password` + `/reset-password` flow with single-use 1-hour tokens; emails sent via Resend.

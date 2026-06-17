@@ -439,21 +439,56 @@ async def list_deliveries(
 @api.post("/deliveries", response_model=Delivery)
 async def create_delivery(payload: DeliveryCreate,
                           user: User = Depends(require_roles([Role.ORG_OWNER, Role.OPS_MANAGER, Role.DISPATCHER]))):
-    cust = await db.customers.find_one(
-        {"id": payload.customer_id, "organization_id": user.organization_id}, {"_id": 0}
-    )
-    if not cust:
-        raise HTTPException(status_code=404, detail="Customer not found")
+    # Resolve customer: either by id, or create inline / save to directory
+    if payload.customer_id:
+        cust = await db.customers.find_one(
+            {"id": payload.customer_id, "organization_id": user.organization_id}, {"_id": 0}
+        )
+        if not cust:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        customer_id = cust["id"]
+        customer_name = cust["name"]
+    else:
+        if not payload.customer_name or not payload.customer_phone:
+            raise HTTPException(status_code=400, detail="customer_id OR (customer_name + customer_phone) required")
+        if payload.save_customer:
+            existing = await db.customers.find_one(
+                {"organization_id": user.organization_id, "phone": payload.customer_phone}, {"_id": 0}
+            )
+            if existing:
+                customer_id = existing["id"]; customer_name = existing["name"]
+            else:
+                new_cust = Customer(
+                    organization_id=user.organization_id,
+                    name=payload.customer_name, phone=payload.customer_phone,
+                    email=payload.customer_email,
+                )
+                await db.customers.insert_one(new_cust.model_dump())
+                customer_id = new_cust.id; customer_name = new_cust.name
+        else:
+            # temporary customer record (still saved for tracking)
+            new_cust = Customer(
+                organization_id=user.organization_id,
+                name=payload.customer_name, phone=payload.customer_phone,
+                email=payload.customer_email,
+                notes="[temporary - created from booking]",
+            )
+            await db.customers.insert_one(new_cust.model_dump())
+            customer_id = new_cust.id; customer_name = new_cust.name
 
+    data = payload.model_dump(exclude={"customer_id", "customer_name", "customer_phone",
+                                       "customer_email", "save_customer"})
     d = Delivery(
         organization_id=user.organization_id,
         tracking_code=gen_tracking_code(),
-        customer_name=cust["name"],
-        timeline=[StatusEvent(status=DeliveryStatus.PENDING, note="Delivery created")],
-        **payload.model_dump(),
+        customer_id=customer_id,
+        customer_name=customer_name,
+        timeline=[StatusEvent(status=DeliveryStatus.PENDING, note="Booking created")],
+        **data,
     )
     await db.deliveries.insert_one(d.model_dump())
-    await log_audit("delivery.created", user, "delivery", d.id)
+    await log_audit("delivery.created", user, "delivery", d.id,
+                    {"service_type": d.service_type})
     return d
 
 
@@ -693,6 +728,52 @@ async def mark_read(nid: str, user: User = Depends(get_current_user)):
 async def list_audit(user: User = Depends(require_roles([Role.ORG_OWNER]))):
     cursor = db.audit_logs.find(tenant_scope(user), {"_id": 0}).sort("created_at", -1).limit(200)
     return [AuditLog(**d) async for d in cursor]
+
+
+# ===================== GEOCODING (OSM Nominatim) =====================
+import httpx  # noqa: E402
+
+_geo_cache: dict[str, list] = {}
+
+
+@api.get("/geocode")
+async def geocode(q: str = Query(..., min_length=3),
+                  user: User = Depends(get_current_user)):
+    """Proxy to OpenStreetMap Nominatim - free, no key. Cached in-process."""
+    key = q.strip().lower()
+    if key in _geo_cache:
+        return {"results": _geo_cache[key]}
+    try:
+        async with httpx.AsyncClient(timeout=6) as c:
+            r = await c.get(
+                "https://photon.komoot.io/api/",
+                params={"q": q, "limit": 6},
+                headers={"User-Agent": "Mozilla/5.0 FleetGrid"},
+            )
+        data = r.json() if r.status_code == 200 else {}
+        feats = data.get("features", [])
+    except Exception:
+        feats = []
+    results = []
+    for f in feats:
+        props = f.get("properties", {})
+        coords = (f.get("geometry") or {}).get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        lng, lat = coords[0], coords[1]
+        label = ", ".join([x for x in [
+            props.get("name"), props.get("street"), props.get("city"),
+            props.get("state"), props.get("country"),
+        ] if x])
+        results.append({
+            "label": label or props.get("name") or f"{lat},{lng}",
+            "lat": float(lat), "lng": float(lng),
+            "type": props.get("type"),
+            "city": props.get("city") or props.get("town") or props.get("village"),
+            "importance": 0,
+        })
+    _geo_cache[key] = results
+    return {"results": results}
 
 
 # ===================== BILLING / RAZORPAY =====================
