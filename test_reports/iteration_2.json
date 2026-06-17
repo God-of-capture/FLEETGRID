@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 2 testing setup completed but FULL EXECUTION NOT PERFORMED due to context budget exhaustion during initial exploration. Test plan and expansions for auth/billing/email features were prepared based on code review of server.py, emailer.py, models.py.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/backend_test.py"],
+  "action_items": [
+    "RE-RUN testing agent: extend /app/backend/tests/backend_test.py with new TestAuthVerification, TestForgotReset, TestBilling, TestNotifyCustomer classes covering: register->email_verified=false->login 403->verify-email(valid/invalid token)->login 200; resend-verification 200 (any email); forgot-password 200 always + email_tokens entry; reset-password invalid token=400, valid+pw>=8 works, login w/ new password works; /billing/plans returns 3 plans + key_id; /billing/create-order owner-only, 403 for dispatcher, returns order_id; /billing/verify with bogus signature=400; /billing/history returns tenant-scoped list; delivery status change to out_for_delivery triggers _notify_customer (verify no crash w/ no email).",
+    "Update existing tests TestAuth.test_register_new_org and TestIsolation.test_cross_tenant_invisible - they will now FAIL because newly registered users have email_verified=false and cannot login. Either set email_verified=true directly in mongo after registration, OR retrieve token from db.email_tokens collection and call /api/auth/verify-email.",
+    "Frontend Playwright tests needed: /forgot-password renders+submits; /reset-password?token=X renders+submits; /verify-email?token=X shows result; /login shows 'Forgot password?' link and after failed unverified login shows verify banner + resend button; /register success shows 'Check your inbox' panel; Settings -> Billing shows 3 plan cards INR pricing and clicking plan calls /api/billing/create-order; regression on operator CRUD flows.",
+    "Add data-testid attributes if missing on: forgot-password-email, forgot-password-submit, reset-password-input, reset-password-submit, verify-email-status, login-forgot-link, login-verify-banner, login-resend-btn, register-check-inbox, billing-plan-{starter,growth,enterprise}, billing-plan-select-btn."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~933 lines - exceeds 700 LOC guideline; split into routers (auth.py, billing.py, deliveries.py, vehicles.py, drivers.py, customers.py) for maintainability.",
+    "register_org returns an access_token (line 130-131) BUT the user has email_verified=false and /auth/login will reject them. This is inconsistent UX - either don't return a token on register OR allow the initial token to bypass verification. Frontend handles by showing 'check inbox' instead of using the token, but token issuance is misleading.",
+    "/auth/verify-email and /auth/reset-password compare expires_at as ISO strings (lexicographic comparison). This works for UTC ISO-8601 with consistent format but is fragile - prefer datetime comparison or store as BSON Date.",
+    "/auth/resend-verification correctly does not leak existence (always returns ok) - good.",
+    "/auth/forgot-password correctly always returns 200 - good.",
+    "/billing/create-order uses asyncio.to_thread for blocking razorpay SDK - good.",
+    "_notify_customer (server.py:85) safely no-ops when no customer or email - good; emailer._send catches exceptions and logs - good (fire-and-forget).",
+    "Razorpay test credentials are committed in .env - acceptable for test mode but should be rotated for prod.",
+    "Migration on startup (line 799) correctly backfills email_verified=true for existing users so seeded accounts still work."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not executed in this iteration", "frontend": "not executed in this iteration"},
+  "test_credentials": "owner@acme.com / dispatcher@acme.com / driver@acme.com / customer@acme.com - all Password123!, all email_verified=true via migration",
+  "seed_data_creation": "None in this iteration",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "I (iteration 2) ran out of context during initial exploration before executing any tests. PRIORITY: 1) Update /app/backend/tests/backend_test.py - existing TestAuth.test_register_new_org no longer logs in newly registered users since email_verified defaults to False; either patch via mongo or call /api/auth/verify-email with token from db.email_tokens. 2) Add new test classes for verify-email/forgot/reset/billing/notify endpoints per action_items. 3) Run pytest with --junitxml=/app/test_reports/pytest/pytest_results.xml. 4) Playwright tests for new pages /verify-email, /forgot-password, /reset-password, login banner, register check-inbox, Settings billing. Use REACT_APP_BACKEND_URL from /app/frontend/.env. To verify a registered user directly: from pymongo import MongoClient; MongoClient('mongodb://localhost:27017')['test_database'].users.update_one({'email': email}, {'$set': {'email_verified': True}}). Code review notes already captured above.",
+  "rca of the issue": "N/A - no testing executed; previous iteration_1 backend suite was 15/15 passing but two of its tests (test_register_new_org, test_cross_tenant_invisible) will regress now because newly registered users start with email_verified=false."
+}

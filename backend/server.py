@@ -2,35 +2,52 @@
 import logging
 import os
 import random
+import secrets
 import string
+import asyncio
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from motor.motor_asyncio import AsyncIOMotorClient
 from starlette.middleware.cors import CORSMiddleware
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
+import razorpay  # noqa: E402
+
 from models import (  # noqa: E402
     AuditLog, Customer, CustomerCreate, CustomerUpdate, Delivery, DeliveryAssign,
     DeliveryCreate, DeliveryStatus, DeliveryStatusChange, Driver, DriverCreate,
-    DriverUpdate, InviteUserRequest, LocationUpdate, LoginRequest, Notification,
-    Organization, OrganizationUpdate, PODSubmit, RegisterOrgRequest, Role,
-    StatusEvent, TokenResponse, User, UserPublic, Vehicle, VehicleCreate,
-    VehicleUpdate,
+    DriverUpdate, ForgotPasswordRequest, InviteUserRequest, LocationUpdate,
+    LoginRequest, Notification, Organization, OrganizationUpdate, PlanChoice,
+    PODSubmit, RazorpayVerify, RegisterOrgRequest, ResendVerificationRequest,
+    ResetPasswordRequest, Role, StatusEvent, TokenResponse, User, UserPublic,
+    VehicleCreate, VehicleUpdate, Vehicle, VerifyEmailRequest,
 )
 from auth import (  # noqa: E402
     create_access_token, get_current_user, hash_password, require_roles,
     tenant_scope, verify_password,
 )
+import emailer  # noqa: E402
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
+
+# Razorpay client
+RZP_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RZP_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+rzp = razorpay.Client(auth=(RZP_KEY_ID, RZP_KEY_SECRET)) if RZP_KEY_ID else None
+
+PLANS = {
+    "starter": {"name": "Starter", "price_inr": 4999, "max_drivers": 5},
+    "growth": {"name": "Growth", "price_inr": 12999, "max_drivers": 25},
+    "enterprise": {"name": "Enterprise", "price_inr": 49999, "max_drivers": 9999},
+}
 
 app = FastAPI(title="Fleet & Delivery SaaS API")
 api = APIRouter(prefix="/api")
@@ -65,6 +82,18 @@ def public_user(u: User) -> UserPublic:
     return UserPublic(**u.model_dump(exclude={"hashed_password"}))
 
 
+async def _notify_customer(delivery_doc: dict) -> None:
+    """Email the customer (if email known) about a delivery status change."""
+    cust = await db.customers.find_one(
+        {"id": delivery_doc.get("customer_id")}, {"_id": 0}
+    )
+    if not cust or not cust.get("email"):
+        return
+    await emailer.send_delivery_status_email(
+        cust["email"], cust["name"], delivery_doc["tracking_code"], delivery_doc["status"]
+    )
+
+
 # ===================== AUTH =====================
 @api.post("/auth/register", response_model=TokenResponse)
 async def register_org(payload: RegisterOrgRequest):
@@ -85,12 +114,21 @@ async def register_org(payload: RegisterOrgRequest):
         hashed_password=hash_password(payload.password),
         roles=[Role.ORG_OWNER],
         organization_id=org.id,
+        email_verified=False,
     )
     await db.users.insert_one(user.model_dump())
     await log_audit("org.created", user, "organization", org.id)
 
-    token = create_access_token(user.id, org.id, [r.value for r in user.roles])
-    return TokenResponse(access_token=token, user=public_user(user), organization=org)
+    # Send verification email
+    token = secrets.token_urlsafe(40)
+    await db.email_tokens.insert_one({
+        "token": token, "user_id": user.id, "type": "verify",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+    })
+    await emailer.send_verification_email(user.email, user.full_name, token)
+
+    access = create_access_token(user.id, org.id, [r.value for r in user.roles])
+    return TokenResponse(access_token=access, user=public_user(user), organization=org)
 
 
 @api.post("/auth/login", response_model=TokenResponse)
@@ -103,18 +141,80 @@ async def login(payload: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User is deactivated")
+    if not user.email_verified:
+        raise HTTPException(status_code=403, detail="Email not verified. Please check your inbox or request a new verification link.")
 
     org_doc = None
     if user.organization_id:
         org_doc = await db.organizations.find_one({"id": user.organization_id}, {"_id": 0})
 
-    token = create_access_token(user.id, user.organization_id, [r.value for r in user.roles])
+    access = create_access_token(user.id, user.organization_id, [r.value for r in user.roles])
     await log_audit("auth.login", user)
     return TokenResponse(
-        access_token=token,
+        access_token=access,
         user=public_user(user),
         organization=Organization(**org_doc) if org_doc else None,
     )
+
+
+@api.post("/auth/verify-email")
+async def verify_email(payload: VerifyEmailRequest):
+    rec = await db.email_tokens.find_one({"token": payload.token, "type": "verify"})
+    if not rec:
+        raise HTTPException(status_code=400, detail="Invalid or used token")
+    if rec["expires_at"] < datetime.now(timezone.utc).isoformat():
+        await db.email_tokens.delete_one({"token": payload.token})
+        raise HTTPException(status_code=400, detail="Token expired")
+    await db.users.update_one({"id": rec["user_id"]}, {"$set": {"email_verified": True}})
+    await db.email_tokens.delete_one({"token": payload.token})
+    return {"ok": True}
+
+
+@api.post("/auth/resend-verification")
+async def resend_verification(payload: ResendVerificationRequest):
+    doc = await db.users.find_one({"email": payload.email.lower()}, {"_id": 0})
+    if not doc:
+        return {"ok": True}  # don't leak
+    if doc.get("email_verified"):
+        return {"ok": True}
+    await db.email_tokens.delete_many({"user_id": doc["id"], "type": "verify"})
+    token = secrets.token_urlsafe(40)
+    await db.email_tokens.insert_one({
+        "token": token, "user_id": doc["id"], "type": "verify",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+    })
+    await emailer.send_verification_email(doc["email"], doc["full_name"], token)
+    return {"ok": True}
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordRequest):
+    doc = await db.users.find_one({"email": payload.email.lower()}, {"_id": 0})
+    if doc:
+        token = secrets.token_urlsafe(40)
+        await db.email_tokens.insert_one({
+            "token": token, "user_id": doc["id"], "type": "reset",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        })
+        await emailer.send_password_reset_email(doc["email"], doc["full_name"], token)
+    return {"ok": True}  # never reveal
+
+
+@api.post("/auth/reset-password")
+async def reset_password(payload: ResetPasswordRequest):
+    rec = await db.email_tokens.find_one({"token": payload.token, "type": "reset"})
+    if not rec:
+        raise HTTPException(status_code=400, detail="Invalid or used token")
+    if rec["expires_at"] < datetime.now(timezone.utc).isoformat():
+        await db.email_tokens.delete_one({"token": payload.token})
+        raise HTTPException(status_code=400, detail="Token expired")
+    if len(payload.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    await db.users.update_one(
+        {"id": rec["user_id"]}, {"$set": {"hashed_password": hash_password(payload.password)}}
+    )
+    await db.email_tokens.delete_one({"token": payload.token})
+    return {"ok": True}
 
 
 @api.get("/auth/me", response_model=UserPublic)
@@ -161,6 +261,7 @@ async def invite_user(payload: InviteUserRequest,
         roles=payload.roles,
         organization_id=user.organization_id,
         phone=payload.phone,
+        email_verified=True,  # invited users are pre-verified by their owner
     )
     await db.users.insert_one(new_user.model_dump())
     await log_audit("user.invited", user, "user", new_user.id)
@@ -425,6 +526,9 @@ async def change_status(delivery_id: str, payload: DeliveryStatusChange,
     doc = await db.deliveries.find_one({"id": delivery_id}, {"_id": 0})
     await log_audit("delivery.status_changed", user, "delivery", delivery_id,
                     {"status": payload.status.value})
+    # Email customer on key transitions
+    if payload.status in (DeliveryStatus.OUT_FOR_DELIVERY, DeliveryStatus.DELIVERED, DeliveryStatus.FAILED):
+        await _notify_customer(doc)
     return Delivery(**doc)
 
 
@@ -457,6 +561,7 @@ async def submit_pod(delivery_id: str, payload: PODSubmit,
         )
     doc = await db.deliveries.find_one({"id": delivery_id}, {"_id": 0})
     await log_audit("delivery.pod_submitted", user, "delivery", delivery_id)
+    await _notify_customer(doc)
     return Delivery(**doc)
 
 
@@ -590,6 +695,77 @@ async def list_audit(user: User = Depends(require_roles([Role.ORG_OWNER]))):
     return [AuditLog(**d) async for d in cursor]
 
 
+# ===================== BILLING / RAZORPAY =====================
+@api.get("/billing/plans")
+async def list_plans():
+    return {"plans": PLANS, "key_id": RZP_KEY_ID}
+
+
+@api.post("/billing/create-order")
+async def create_billing_order(payload: PlanChoice,
+                               user: User = Depends(require_roles([Role.ORG_OWNER]))):
+    if not rzp:
+        raise HTTPException(status_code=500, detail="Razorpay not configured")
+    plan = PLANS.get(payload.plan)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Unknown plan")
+    receipt = f"org-{user.organization_id[:8]}-{secrets.token_hex(4)}"
+    try:
+        order = await asyncio.to_thread(
+            rzp.order.create,
+            {"amount": plan["price_inr"] * 100, "currency": "INR",
+             "receipt": receipt[:40], "payment_capture": 1,
+             "notes": {"organization_id": user.organization_id, "plan": payload.plan}},
+        )
+    except Exception as e:
+        logger.error(f"Razorpay order create failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Payment gateway error: {e}")
+    await db.billing_orders.insert_one({
+        "order_id": order["id"], "organization_id": user.organization_id,
+        "plan": payload.plan, "amount": plan["price_inr"], "status": "created",
+        "created_at": now_iso(),
+    })
+    return {
+        "order_id": order["id"], "amount": order["amount"], "currency": order["currency"],
+        "key_id": RZP_KEY_ID, "plan": payload.plan, "plan_name": plan["name"],
+    }
+
+
+@api.post("/billing/verify")
+async def verify_payment(payload: RazorpayVerify,
+                         user: User = Depends(require_roles([Role.ORG_OWNER]))):
+    if not rzp:
+        raise HTTPException(status_code=500, detail="Razorpay not configured")
+    try:
+        rzp.utility.verify_payment_signature({
+            "razorpay_order_id": payload.razorpay_order_id,
+            "razorpay_payment_id": payload.razorpay_payment_id,
+            "razorpay_signature": payload.razorpay_signature,
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid payment signature")
+
+    await db.billing_orders.update_one(
+        {"order_id": payload.razorpay_order_id, "organization_id": user.organization_id},
+        {"$set": {"status": "paid", "payment_id": payload.razorpay_payment_id,
+                  "paid_at": now_iso()}},
+    )
+    await db.organizations.update_one(
+        {"id": user.organization_id}, {"$set": {"plan": payload.plan}}
+    )
+    await log_audit("billing.upgraded", user, "organization", user.organization_id,
+                    {"plan": payload.plan})
+    return {"ok": True, "plan": payload.plan}
+
+
+@api.get("/billing/history")
+async def billing_history(user: User = Depends(require_roles([Role.ORG_OWNER]))):
+    cursor = db.billing_orders.find(
+        {"organization_id": user.organization_id}, {"_id": 0}
+    ).sort("created_at", -1)
+    return [d async for d in cursor]
+
+
 # ===================== HEALTH =====================
 @api.get("/")
 async def root():
@@ -616,6 +792,13 @@ async def startup():
     await db.vehicles.create_index([("organization_id", 1)])
     await db.drivers.create_index([("organization_id", 1)])
     await db.customers.create_index([("organization_id", 1)])
+    await db.email_tokens.create_index("token", unique=True)
+    await db.email_tokens.create_index("expires_at")
+
+    # Migration: ensure existing users have email_verified field
+    await db.users.update_many(
+        {"email_verified": {"$exists": False}}, {"$set": {"email_verified": True}}
+    )
 
     # Seed demo data if empty
     if await db.organizations.count_documents({}) == 0:
@@ -634,6 +817,7 @@ async def _seed_demo():
         roles=[Role.ORG_OWNER],
         organization_id=org.id,
         phone="+1-555-0100",
+        email_verified=True,
     )
     dispatcher = User(
         email="dispatcher@acme.com",
@@ -641,6 +825,7 @@ async def _seed_demo():
         hashed_password=hash_password("Password123!"),
         roles=[Role.DISPATCHER],
         organization_id=org.id,
+        email_verified=True,
     )
     drv_user = User(
         email="driver@acme.com",
@@ -648,6 +833,7 @@ async def _seed_demo():
         hashed_password=hash_password("Password123!"),
         roles=[Role.DRIVER],
         organization_id=org.id,
+        email_verified=True,
     )
     cust_user = User(
         email="customer@acme.com",
@@ -655,6 +841,7 @@ async def _seed_demo():
         hashed_password=hash_password("Password123!"),
         roles=[Role.CUSTOMER],
         organization_id=org.id,
+        email_verified=True,
     )
     await db.users.insert_many([owner.model_dump(), dispatcher.model_dump(),
                                 drv_user.model_dump(), cust_user.model_dump()])

@@ -7,7 +7,18 @@ import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash } from "@phosphor-icons/react";
+import { Plus, Trash, CheckCircle } from "@phosphor-icons/react";
+
+function loadRazorpay() {
+  return new Promise((resolve) => {
+    if (window.Razorpay) return resolve(true);
+    const s = document.createElement("script");
+    s.src = "https://checkout.razorpay.com/v1/checkout.js";
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.body.appendChild(s);
+  });
+}
 
 export default function Settings() {
   const { user, organization } = useAuth();
@@ -15,15 +26,51 @@ export default function Settings() {
   const [orgForm, setOrgForm] = useState({ name: "", address: "", tax_id: "" });
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState({ email: "", full_name: "", password: "", roles: ["ops_manager"], phone: "" });
+  const [plans, setPlans] = useState({});
+  const [history, setHistory] = useState([]);
+  const [currentPlan, setCurrentPlan] = useState(organization?.plan || "trial");
 
   useEffect(() => {
     api.get("/users").then(r => setUsers(r.data)).catch(()=>{});
+    api.get("/billing/plans").then(r => setPlans(r.data.plans)).catch(()=>{});
+    api.get("/billing/history").then(r => setHistory(r.data)).catch(()=>{});
     setOrgForm({
       name: organization?.name || "",
       address: organization?.address || "",
       tax_id: organization?.tax_id || "",
     });
+    setCurrentPlan(organization?.plan || "trial");
   }, [organization]);
+
+  const upgrade = async (planKey) => {
+    const ok = await loadRazorpay();
+    if (!ok) return toast.error("Razorpay SDK failed to load");
+    try {
+      const { data } = await api.post("/billing/create-order", { plan: planKey });
+      const rzp = new window.Razorpay({
+        key: data.key_id,
+        amount: data.amount,
+        currency: data.currency,
+        name: "FleetGrid",
+        description: `${data.plan_name} subscription`,
+        order_id: data.order_id,
+        prefill: { name: user.full_name, email: user.email },
+        theme: { color: "#002FA7" },
+        handler: async (res) => {
+          try {
+            await api.post("/billing/verify", { ...res, plan: planKey });
+            toast.success(`Upgraded to ${data.plan_name}`);
+            setCurrentPlan(planKey);
+            api.get("/billing/history").then(r => setHistory(r.data));
+          } catch { toast.error("Payment verification failed"); }
+        },
+        modal: { ondismiss: () => toast("Checkout cancelled") },
+      });
+      rzp.open();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not start checkout");
+    }
+  };
 
   const saveOrg = async (e) => {
     e.preventDefault();
@@ -72,24 +119,41 @@ export default function Settings() {
             <div className="border border-slate-200 p-4">
               <div className="label-overline">Current plan</div>
               <div className="mt-2 flex items-baseline justify-between">
-                <div className="font-heading text-2xl font-bold capitalize">{organization?.plan || "trial"}</div>
-                <div className="text-xs text-slate-500">14-day free trial</div>
+                <div className="font-heading text-2xl font-bold capitalize" data-testid="current-plan">{currentPlan}</div>
+                <div className="text-xs text-slate-500">{currentPlan === "trial" ? "14-day free trial" : "Active"}</div>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              {[
-                ["Starter","₹4,999/mo","Up to 5 drivers"],
-                ["Growth","₹12,999/mo","Up to 25 drivers"],
-                ["Enterprise","Talk to us","Unlimited"],
-              ].map(([t, p, d]) => (
-                <div key={t} className="border border-slate-200 p-4">
-                  <div className="font-heading font-semibold">{t}</div>
-                  <div className="font-mono-tabular text-sm mt-1">{p}</div>
-                  <div className="text-[11px] text-slate-500 mt-1">{d}</div>
-                  <Button variant="outline" size="sm" className="mt-3 w-full text-xs" data-testid={`plan-${t.toLowerCase()}-btn`}>Choose</Button>
+              {Object.entries(plans).map(([key, p]) => (
+                <div key={key} className={`border p-4 ${currentPlan === key ? "border-[#002FA7] bg-blue-50" : "border-slate-200"}`}>
+                  <div className="font-heading font-semibold capitalize">{p.name}</div>
+                  <div className="font-mono-tabular text-sm mt-1">₹{p.price_inr.toLocaleString("en-IN")}/mo</div>
+                  <div className="text-[11px] text-slate-500 mt-1">Up to {p.max_drivers === 9999 ? "∞" : p.max_drivers} drivers</div>
+                  {currentPlan === key ? (
+                    <Button disabled variant="outline" size="sm" className="mt-3 w-full text-xs"><CheckCircle size={12} className="mr-1" weight="fill" /> Current</Button>
+                  ) : (
+                    <Button onClick={() => upgrade(key)} className="btn-brand mt-3 w-full text-xs" size="sm" data-testid={`plan-${key}-btn`}>
+                      {currentPlan === "trial" ? "Subscribe" : "Switch"}
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
+            {history.length > 0 && (
+              <div className="mt-4">
+                <div className="label-overline mb-2">Recent invoices</div>
+                <div className="border border-slate-200 divide-y divide-slate-100">
+                  {history.slice(0, 5).map((h) => (
+                    <div key={h.order_id} className="px-3 py-2 flex items-center justify-between text-xs">
+                      <span className="font-mono-tabular text-slate-500">{h.order_id}</span>
+                      <span className="capitalize">{h.plan}</span>
+                      <span className="font-mono-tabular">₹{h.amount.toLocaleString("en-IN")}</span>
+                      <span className={`uppercase tracking-wider text-[10px] ${h.status === "paid" ? "text-emerald-700" : "text-slate-500"}`}>{h.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

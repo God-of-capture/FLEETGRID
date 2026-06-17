@@ -69,6 +69,7 @@ class User(BaseModel):
     roles: List[Role] = [Role.CUSTOMER]
     organization_id: Optional[str] = None  # None for super_admin
     is_active: bool = True
+    email_verified: bool = False
     phone: Optional[str] = None
     avatar_url: Optional[str] = None
     created_at: str = Field(default_factory=_now)
@@ -81,6 +82,7 @@ class UserPublic(BaseModel):
     roles: List[Role]
     organization_id: Optional[str] = None
     is_active: bool
+    email_verified: bool = False
     phone: Optional[str] = None
     avatar_url: Optional[str] = None
     created_at: str
@@ -112,6 +114,34 @@ class InviteUserRequest(BaseModel):
     password: str
     roles: List[Role]
     phone: Optional[str] = None
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class PlanChoice(BaseModel):
+    plan: str  # starter | growth | enterprise
+
+
+class RazorpayVerify(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
+    plan: str
 
 
 # ============ Vehicle ============

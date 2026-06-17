@@ -14,6 +14,7 @@ export default function Register() {
     org_name: "", org_slug: "", owner_full_name: "", owner_email: "", password: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
 
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const onSlugify = (e) => {
@@ -29,8 +30,8 @@ export default function Register() {
     setSubmitting(true);
     try {
       await registerOrg(f);
-      toast.success("Workspace created. Welcome aboard.");
-      navigate("/app/dashboard");
+      setSent(true);
+      toast.success("Workspace created. Check your email to verify.");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Registration failed");
     } finally {
@@ -52,6 +53,15 @@ export default function Register() {
           <h2 className="font-heading text-4xl font-bold tracking-tight mt-3">Create your workspace.</h2>
           <p className="mt-3 text-slate-600">14-day free trial. No card required.</p>
 
+          {sent ? (
+            <div className="mt-8 p-6 border border-emerald-200 bg-emerald-50" data-testid="register-success">
+              <div className="font-heading font-semibold text-emerald-900">Check your inbox</div>
+              <p className="mt-2 text-sm text-emerald-800">
+                We sent a verification link to <b className="font-mono-tabular">{f.owner_email}</b>. Open it to activate your workspace, then sign in.
+              </p>
+              <Link to="/login"><Button className="btn-brand mt-5" data-testid="register-goto-login">Back to sign in</Button></Link>
+            </div>
+          ) : (
           <form onSubmit={onSubmit} className="mt-8 space-y-4">
             <div>
               <Label className="label-overline">Company name</Label>
@@ -99,6 +109,7 @@ export default function Register() {
               {submitting ? "Creating workspace…" : (<>Create workspace <ArrowRight size={16} className="ml-2" /></>)}
             </Button>
           </form>
+          )}
 
           <p className="mt-6 text-sm text-slate-600">
             Already on FleetGrid?{" "}

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import { api } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -13,10 +14,12 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [needsVerify, setNeedsVerify] = useState(false);
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
+    setNeedsVerify(false);
     try {
       const data = await login(email, password);
       toast.success(`Welcome back, ${data.user.full_name}`);
@@ -25,10 +28,21 @@ export default function Login() {
       else if (roles.includes("customer")) navigate("/portal");
       else navigate("/app/dashboard");
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Login failed");
+      const detail = err?.response?.data?.detail || "Login failed";
+      if (err?.response?.status === 403 && detail.toLowerCase().includes("email not verified")) {
+        setNeedsVerify(true);
+      }
+      toast.error(detail);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const resendVerify = async () => {
+    try {
+      await api.post("/auth/resend-verification", { email });
+      toast.success("Verification email sent. Check your inbox.");
+    } catch { toast.error("Could not send verification email"); }
   };
 
   const quickFill = (em) => { setEmail(em); setPassword("Password123!"); };
@@ -111,6 +125,20 @@ export default function Login() {
             >
               {submitting ? "Signing in…" : (<>Sign in <ArrowRight size={16} className="ml-2" /></>)}
             </Button>
+            {needsVerify && (
+              <div className="rounded-none border border-amber-200 bg-amber-50 p-4 text-sm" data-testid="verify-banner">
+                <div className="font-medium text-amber-900">Email not verified.</div>
+                <div className="text-amber-800 mt-1">Check your inbox or </div>
+                <button type="button" onClick={resendVerify} className="text-amber-900 underline mt-1" data-testid="resend-verify-btn">
+                  resend the verification email
+                </button>
+              </div>
+            )}
+            <div className="text-right">
+              <Link to="/forgot-password" className="text-xs text-slate-500 hover:text-[#002FA7]" data-testid="forgot-link">
+                Forgot password?
+              </Link>
+            </div>
           </form>
 
           <p className="mt-8 text-sm text-slate-600">

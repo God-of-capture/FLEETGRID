@@ -21,6 +21,9 @@ import Analytics from "./pages/Analytics";
 import DriverPortal from "./pages/DriverPortal";
 import CustomerPortal from "./pages/CustomerPortal";
 import PublicTracking from "./pages/PublicTracking";
+import VerifyEmail from "./pages/VerifyEmail";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 function RoleHome() {
   const { user, loading } = useAuth();
@@ -44,6 +47,9 @@ function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/track" element={<PublicTracking />} />
           <Route path="/track/:code" element={<PublicTracking />} />
 
