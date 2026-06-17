@@ -147,6 +147,12 @@ export default function Login() {
               Create an organization
             </Link>
           </p>
+          <p className="mt-3 text-sm text-slate-600">
+            Just sending a parcel?{" "}
+            <Link to="/signup/individual" className="text-[#002FA7] font-medium hover:underline" data-testid="signup-individual-link">
+              Sign up as individual
+            </Link>
+          </p>
         </div>
       </div>
     </div>

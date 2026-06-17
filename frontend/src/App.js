@@ -8,6 +8,7 @@ import Layout from "./components/Layout";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import SignupIndividual from "./pages/SignupIndividual";
 import Dashboard from "./pages/Dashboard";
 import Fleet from "./pages/Fleet";
 import Drivers from "./pages/Drivers";
@@ -48,6 +49,7 @@ function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/signup/individual" element={<SignupIndividual />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
