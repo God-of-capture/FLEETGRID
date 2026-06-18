@@ -8,10 +8,12 @@ import { Link } from "react-router-dom";
 
 export default function Dashboard() {
   const [s, setS] = useState(null);
+  const [ops, setOps] = useState(null);
   const [recent, setRecent] = useState([]);
 
   useEffect(() => {
     api.get("/dashboard/summary").then((r) => setS(r.data));
+    api.get("/dashboard/operations").then((r) => setOps(r.data)).catch(() => {});
     api.get("/deliveries").then((r) => setRecent(r.data.slice(0, 6)));
   }, []);
 
@@ -48,6 +50,22 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      {ops && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 border-l border-t border-slate-200">
+          {[
+            { label: "Pending verifications", value: ops.pending_verifications },
+            { label: "Active offers", value: ops.active_offers },
+            { label: "Available drivers", value: ops.available_drivers },
+            { label: "Avg driver rating", value: ops.driver_ratings?.avg_rating?.toFixed(1) || "5.0" },
+          ].map(({ label, value }) => (
+            <div key={label} className="border-r border-b border-slate-200 p-6 bg-white">
+              <div className="label-overline">{label}</div>
+              <div className="mt-4 font-heading text-3xl font-bold font-mono-tabular">{value}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

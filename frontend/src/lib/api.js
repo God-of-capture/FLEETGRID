@@ -20,7 +20,7 @@ api.interceptors.response.use(
       if (localStorage.getItem("fleet_token")) {
         localStorage.removeItem("fleet_token");
         localStorage.removeItem("fleet_user");
-        if (!path.startsWith("/track") && !path.startsWith("/register") && path !== "/") {
+        if (!path.startsWith("/track") && !path.startsWith("/register") && !path.startsWith("/login") && path !== "/" && !path.startsWith("/admin/login")) {
           window.location.href = "/login";
         }
       }

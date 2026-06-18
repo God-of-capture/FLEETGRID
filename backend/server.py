@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from starlette.middleware.cors import CORSMiddleware
 
@@ -33,6 +34,9 @@ from auth import (  # noqa: E402
     tenant_scope, verify_password,
 )
 import emailer  # noqa: E402
+from phase2_routes import router as phase2_router  # noqa: E402
+from admin_routes import router as admin_router  # noqa: E402
+from storage import get_storage  # noqa: E402
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -485,7 +489,7 @@ async def create_delivery(payload: DeliveryCreate,
         tracking_code=gen_tracking_code(),
         customer_id=customer_id,
         customer_name=customer_name,
-        timeline=[StatusEvent(status=DeliveryStatus.PENDING, note="Booking created")],
+        timeline=[StatusEvent(status=DeliveryStatus.PENDING, note="Booking created", event_type="created")],
         **data,
     )
     await db.deliveries.insert_one(d.model_dump())
@@ -510,6 +514,9 @@ async def assign_delivery(delivery_id: str, payload: DeliveryAssign,
     drv = await db.drivers.find_one({"id": payload.driver_id, "organization_id": user.organization_id}, {"_id": 0})
     if not drv:
         raise HTTPException(status_code=404, detail="Driver not found")
+    vstat = drv.get("verification_status", "active")
+    if vstat not in ("active", "approved"):
+        raise HTTPException(status_code=400, detail="Driver must be verified before assignment")
     veh_id = payload.vehicle_id or drv.get("assigned_vehicle_id")
     delivery = await db.deliveries.find_one({"id": delivery_id, "organization_id": user.organization_id}, {"_id": 0})
     if not delivery:
@@ -747,6 +754,39 @@ async def signup_individual(payload: RegisterOrgRequest):
                          user=public_user(u), organization=org)
 
 
+@api.post("/auth/signup-partner", response_model=TokenResponse)
+async def signup_partner(payload: RegisterOrgRequest):
+    """Register a delivery partner — onboarding required before accepting jobs."""
+    from models import PartnerOnboarding, VerificationStatus
+    if await db.users.find_one({"email": payload.owner_email.lower()}):
+        raise HTTPException(status_code=400, detail="Email already registered")
+    org = Organization(name=f"Partner · {payload.owner_full_name}", slug=f"drv-{secrets.token_hex(4)}")
+    await db.organizations.insert_one(org.model_dump())
+    u = User(
+        email=payload.owner_email.lower(),
+        full_name=payload.owner_full_name,
+        hashed_password=hash_password(payload.password),
+        roles=[Role.DRIVER],
+        organization_id=org.id,
+        phone=payload.owner_email,  # placeholder; collected in onboarding
+        email_verified=True,
+    )
+    await db.users.insert_one(u.model_dump())
+    ob = PartnerOnboarding(
+        organization_id=org.id,
+        user_id=u.id,
+        full_name=payload.owner_full_name,
+        email=payload.owner_email.lower(),
+        verification_status=VerificationStatus.PENDING.value,
+    )
+    await db.partner_onboarding.insert_one(ob.model_dump())
+    await log_audit("partner.registered", u, "partner_onboarding", ob.id)
+    return TokenResponse(
+        access_token=create_access_token(u.id, org.id, [r.value for r in u.roles]),
+        user=public_user(u), organization=org,
+    )
+
+
 @api.get("/drivers/nearest")
 async def nearest_drivers(lat: float, lng: float, user: User = Depends(get_current_user)):
     """Demo: returns up to 5 available drivers from any org with current_lat/lng set."""
@@ -927,6 +967,21 @@ async def root():
     return {"status": "ok", "service": "fleet-saas-api"}
 
 
+@api.get("/files/{filename}")
+async def serve_upload(filename: str):
+    """Serve locally stored uploads (production: use CDN/S3 signed URLs)."""
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    upload_dir = Path(os.environ.get("UPLOAD_DIR", ROOT / "uploads"))
+    path = upload_dir / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path)
+
+
+api.include_router(phase2_router)
+api.include_router(admin_router)
+
 app.include_router(api)
 
 app.add_middleware(
@@ -949,6 +1004,21 @@ async def startup():
     await db.customers.create_index([("organization_id", 1)])
     await db.email_tokens.create_index("token", unique=True)
     await db.email_tokens.create_index("expires_at")
+    # Phase 2 indexes
+    await db.partner_onboarding.create_index([("organization_id", 1), ("verification_status", 1)])
+    await db.partner_onboarding.create_index([("user_id", 1)], unique=True)
+    await db.verification_documents.create_index([("onboarding_id", 1)])
+    await db.delivery_offers.create_index([("delivery_id", 1), ("status", 1)])
+    await db.delivery_offers.create_index([("driver_id", 1), ("status", 1)])
+    await db.delivery_offers.create_index("expires_at")
+    await db.delivery_ratings.create_index([("delivery_id", 1), ("rater_user_id", 1)], unique=True)
+
+    # Migration: Phase 2 defaults for existing drivers
+    await db.drivers.update_many(
+        {"verification_status": {"$exists": False}},
+        {"$set": {"verification_status": "active", "rating_punctuality": 5.0,
+                  "rating_professionalism": 5.0, "rating_count": 0}},
+    )
 
     # Migration: ensure existing users have email_verified field
     await db.users.update_many(
@@ -960,6 +1030,25 @@ async def startup():
     # Seed demo data if empty
     if await db.organizations.count_documents({}) == 0:
         await _seed_demo()
+
+    await _ensure_super_admin()
+
+
+async def _ensure_super_admin():
+    email = os.environ.get("SUPER_ADMIN_EMAIL", "admin@fleetgrid.com").lower()
+    if await db.users.find_one({"email": email}):
+        return
+    pwd = os.environ.get("SUPER_ADMIN_PASSWORD", "Admin123!")
+    admin = User(
+        email=email,
+        full_name="Platform Admin",
+        hashed_password=hash_password(pwd),
+        roles=[Role.SUPER_ADMIN],
+        organization_id=None,
+        email_verified=True,
+    )
+    await db.users.insert_one(admin.model_dump())
+    logger.info(f"Seeded super admin {email}")
 
 
 async def _seed_demo():

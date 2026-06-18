@@ -3,6 +3,7 @@ import React from "react";
 
 const map = {
   pending: { label: "Pending", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  offered: { label: "Offered", cls: "bg-violet-50 text-violet-700 border-violet-200" },
   assigned: { label: "Assigned", cls: "bg-slate-100 text-slate-800 border-slate-300" },
   picked_up: { label: "Picked up", cls: "bg-blue-50 text-blue-700 border-blue-200" },
   in_transit: { label: "In transit", cls: "bg-blue-50 text-blue-700 border-blue-200" },

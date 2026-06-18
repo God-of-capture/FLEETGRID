@@ -1,7 +1,7 @@
 # FleetGrid — Fleet & Delivery Management SaaS (PRD)
 
 ## Original problem statement
-Production-ready, enterprise-grade, multi-tenant Fleet & Delivery Management SaaS web application. Originally specified for Next.js + Django + Postgres + Redis + Celery; adapted to the Emergent platform stack (React + FastAPI + MongoDB) while preserving all multi-tenant SaaS semantics.
+Production-ready, enterprise-grade, multi-tenant Fleet & Delivery Management SaaS web application. Originally specified for Next.js + Django + Postgres + Redis + Celery; implemented with React + FastAPI + MongoDB while preserving all multi-tenant SaaS semantics.
 
 ## Architecture
 - **Backend**: FastAPI (Python), Motor (async MongoDB), bcrypt + PyJWT for auth
@@ -67,3 +67,48 @@ owner@acme.com · dispatcher@acme.com · driver@acme.com · customer@acme.com
 
 ## Test status
 Iteration 1 (Feb 2026): 15/15 backend pytest pass (100%). All operator nav routes, driver portal, public tracking verified. No critical issues found.
+
+## Implemented (Jun 2026 — Phase 2)
+
+### Architecture
+- **`backend/storage.py`**: Storage abstraction (`LocalStorageBackend` + `S3StorageBackend` placeholder). Uploads served at `/api/files/{filename}`.
+- **`backend/phase2_services.py`**: Offer creation, atomic accept-first-wins, haversine distance, payout estimation, rating aggregates, notification helpers.
+- **`backend/phase2_routes.py`**: All Phase 2 REST endpoints mounted on existing `/api` router.
+
+### Database collections (new)
+| Collection | Purpose |
+|---|---|
+| `partner_onboarding` | Multi-step partner applications with verification state |
+| `verification_documents` | Selfie, ID, RC, insurance, vehicle photos |
+| `delivery_offers` | Accept-first-wins offer records with expiry |
+| `delivery_ratings` | Customer/driver post-delivery ratings |
+
+### Features
+1. **Partner onboarding wizard** (`/partner/onboarding`) — 8 steps, resumable progress, document uploads
+2. **Verification workflow** — states: pending → docs_review → approved/rejected → active/suspended
+3. **Admin review queue** (`/app/verification`) — approve, reject, request resubmission with audit logs
+4. **Delivery offer system** — `POST /deliveries/{id}/offer`, atomic accept, auto-expire competing offers
+5. **Driver jobs feed** (`/driver/jobs`) — nearby offers with distance, payout, expiry timer, sorting
+6. **Pickup confirmation** — photo, GPS, notes, timeline event `pickup_confirmed`
+7. **Enhanced POD** — photo upload, signature, QR confirmation, GPS (`POST /deliveries/{id}/pod/v2`)
+8. **Ratings** — customer rates driver (punctuality, professionalism); driver rates customer interaction
+9. **Operations dashboard** — `GET /dashboard/operations` (verifications, offers, drivers, ratings)
+10. **Driver verification gate** — unverified drivers cannot be manually assigned
+
+### API endpoints (Phase 2)
+- `GET/PATCH /partner/onboarding/me`, `/step`, `/documents`, `/submit`
+- `GET /admin/verification/queue`, `GET /admin/verification/{id}`, `POST .../review`
+- `POST /deliveries/{id}/offer`, `GET /driver/jobs`, `POST /offers/{id}/accept|decline`
+- `POST /deliveries/{id}/pickup-confirm`, `/upload`, `/pod/v2`
+- `POST /deliveries/{id}/ratings/customer|driver`
+- `GET /dashboard/operations`
+
+### Security
+- All queries tenant-scoped via `tenant_scope(user)`
+- RBAC on every endpoint (`require_roles`)
+- Upload validation (type + 10 MB limit)
+- Audit log on every write
+- Atomic offer acceptance prevents race conditions
+
+### Tests
+- `backend/tests/phase2_test.py` — onboarding, offers, RBAC, operations dashboard

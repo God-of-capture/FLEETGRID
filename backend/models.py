@@ -26,6 +26,7 @@ class Role(str, Enum):
 
 class DeliveryStatus(str, Enum):
     PENDING = "pending"
+    OFFERED = "offered"  # Phase 2: offers sent, awaiting acceptance
     ASSIGNED = "assigned"
     PICKED_UP = "picked_up"
     IN_TRANSIT = "in_transit"
@@ -33,6 +34,39 @@ class DeliveryStatus(str, Enum):
     DELIVERED = "delivered"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class VerificationStatus(str, Enum):
+    PENDING = "pending"
+    DOCS_REVIEW = "docs_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+
+
+class DocumentType(str, Enum):
+    SELFIE = "selfie"
+    GOVERNMENT_ID = "government_id"
+    RC = "rc"
+    INSURANCE = "insurance"
+    VEHICLE_FRONT = "vehicle_front"
+    VEHICLE_REAR = "vehicle_rear"
+    ADDITIONAL = "additional"
+
+
+class DocumentVerificationStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RESUBMIT_REQUESTED = "resubmit_requested"
+
+
+class OfferStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    EXPIRED = "expired"
 
 
 # ============ Organization ============
@@ -196,6 +230,11 @@ class Driver(BaseModel):
     status: str = "available"  # available, on_trip, off_duty
     assigned_vehicle_id: Optional[str] = None
     rating: float = 5.0
+    rating_punctuality: float = 5.0
+    rating_professionalism: float = 5.0
+    rating_count: int = 0
+    verification_status: str = "active"  # VerificationStatus value
+    onboarding_id: Optional[str] = None
     deliveries_completed: int = 0
     current_lat: Optional[float] = None
     current_lng: Optional[float] = None
@@ -267,6 +306,7 @@ class StatusEvent(BaseModel):
     note: Optional[str] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
+    event_type: Optional[str] = None  # created, offered, accepted, pickup_confirmed, etc.
 
 
 class Delivery(BaseModel):
@@ -300,6 +340,12 @@ class Delivery(BaseModel):
     pod_photo_url: Optional[str] = None
     pod_signature: Optional[str] = None
     pod_notes: Optional[str] = None
+    pod_qr_confirmed: bool = False
+    pickup_photo_url: Optional[str] = None
+    pickup_confirmed_at: Optional[str] = None
+    pickup_notes: Optional[str] = None
+    payout_estimate: Optional[float] = None
+    offer_mode: bool = False
     created_at: str = Field(default_factory=_now)
     delivered_at: Optional[str] = None
 
@@ -348,6 +394,14 @@ class PODSubmit(BaseModel):
     pod_photo_url: Optional[str] = None
     pod_signature: Optional[str] = None
     pod_notes: Optional[str] = None
+    pod_qr_confirmed: bool = False
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+
+class PickupConfirm(BaseModel):
+    pickup_photo_url: Optional[str] = None
+    pickup_notes: Optional[str] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
 
@@ -376,3 +430,120 @@ class AuditLog(BaseModel):
     resource_id: Optional[str] = None
     metadata: Optional[dict] = None
     created_at: str = Field(default_factory=_now)
+
+
+# ============ Phase 2: Partner Onboarding ============
+class PartnerOnboarding(BaseModel):
+    id: str = Field(default_factory=_id)
+    organization_id: str
+    user_id: str
+    current_step: int = 1
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    address_line: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    id_number: Optional[str] = None
+    id_type: Optional[str] = None
+    vehicle_type: Optional[str] = None
+    registration_number: Optional[str] = None
+    capacity_kg: Optional[float] = None
+    license_number: Optional[str] = None
+    verification_status: str = VerificationStatus.PENDING.value
+    reviewer_id: Optional[str] = None
+    reviewer_email: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    verification_notes: Optional[str] = None
+    submitted_at: Optional[str] = None
+    created_at: str = Field(default_factory=_now)
+    updated_at: str = Field(default_factory=_now)
+
+
+class OnboardingStepUpdate(BaseModel):
+    step: int
+    data: dict
+
+
+class OnboardingReviewAction(BaseModel):
+    action: str  # approve | reject | request_resubmit
+    rejection_reason: Optional[str] = None
+    verification_notes: Optional[str] = None
+
+
+class VerificationDocument(BaseModel):
+    id: str = Field(default_factory=_id)
+    organization_id: str
+    owner_user_id: str
+    onboarding_id: str
+    doc_type: str
+    storage_url: str
+    filename: str
+    content_type: str
+    file_size: int = 0
+    verification_status: str = DocumentVerificationStatus.PENDING.value
+    metadata: Optional[dict] = None
+    uploaded_at: str = Field(default_factory=_now)
+
+
+class DeliveryOffer(BaseModel):
+    id: str = Field(default_factory=_id)
+    organization_id: str
+    delivery_id: str
+    driver_id: str
+    status: str = OfferStatus.PENDING.value
+    estimated_distance_km: Optional[float] = None
+    payout_estimate: Optional[float] = None
+    expires_at: str
+    accepted_at: Optional[str] = None
+    declined_at: Optional[str] = None
+    created_at: str = Field(default_factory=_now)
+
+
+class OfferDeliveryRequest(BaseModel):
+    radius_km: float = 15.0
+    offer_ttl_minutes: int = 15
+    max_drivers: int = 5
+
+
+class OfferAction(BaseModel):
+    note: Optional[str] = None
+
+
+class DeliveryRating(BaseModel):
+    id: str = Field(default_factory=_id)
+    organization_id: str
+    delivery_id: str
+    rater_user_id: str
+    rater_role: str
+    driver_rating: Optional[float] = None
+    punctuality_rating: Optional[float] = None
+    professionalism_rating: Optional[float] = None
+    overall_rating: Optional[float] = None
+    customer_interaction_rating: Optional[float] = None
+    comment: Optional[str] = None
+    created_at: str = Field(default_factory=_now)
+
+
+class CustomerRatingSubmit(BaseModel):
+    driver_rating: float = Field(ge=1, le=5)
+    punctuality_rating: float = Field(ge=1, le=5)
+    professionalism_rating: float = Field(ge=1, le=5)
+    overall_rating: float = Field(ge=1, le=5)
+    comment: Optional[str] = None
+
+
+class DriverRatingSubmit(BaseModel):
+    customer_interaction_rating: float = Field(ge=1, le=5)
+    comment: Optional[str] = None
+
+
+class PaginatedResponse(BaseModel):
+    items: list
+    total: int
+    page: int
+    page_size: int
+    pages: int

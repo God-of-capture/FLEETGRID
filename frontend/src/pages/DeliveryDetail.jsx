@@ -34,6 +34,16 @@ export default function DeliveryDetail() {
     toast.success("Driver assigned"); load();
   };
 
+  const offerToDrivers = async () => {
+    try {
+      const res = await api.post(`/deliveries/${id}/offer`, { radius_km: 15, offer_ttl_minutes: 15, max_drivers: 5 });
+      toast.success(`Offered to ${res.data.length} drivers`);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Could not create offers");
+    }
+  };
+
   const setStatus = async (s) => {
     await api.post(`/deliveries/${id}/status`, { status: s });
     toast.success("Status updated"); load();
@@ -91,7 +101,7 @@ export default function DeliveryDetail() {
               {(d.timeline || []).map((e, i) => (
                 <li key={i} className="ml-5">
                   <span className="absolute -left-2 w-3 h-3 bg-[#002FA7] rounded-full"></span>
-                  <div className="text-sm font-medium capitalize">{e.status.replace("_"," ")}</div>
+                  <div className="text-sm font-medium capitalize">{(e.event_type || e.status).replace("_"," ")}</div>
                   <div className="text-xs text-slate-500 font-mono-tabular">{new Date(e.at).toLocaleString()}</div>
                   {e.note && <div className="text-xs text-slate-600 mt-1">{e.note}</div>}
                 </li>
@@ -117,7 +127,13 @@ export default function DeliveryDetail() {
               <div className="label-overline">Operations</div>
               <div className="mt-4 space-y-3">
                 <div>
-                  <div className="text-xs mb-2 text-slate-600">Assign driver</div>
+                  <div className="text-xs mb-2 text-slate-600">Smart assignment (offer to nearby drivers)</div>
+                  <Button onClick={offerToDrivers} variant="outline" className="w-full" data-testid="offer-btn">
+                    Send offers to nearby drivers
+                  </Button>
+                </div>
+                <div>
+                  <div className="text-xs mb-2 text-slate-600">Manual assign driver</div>
                   <div className="flex gap-2">
                     <Select value={driverId} onValueChange={setDriverId}>
                       <SelectTrigger data-testid="assign-driver-select"><SelectValue placeholder="Pick driver" /></SelectTrigger>

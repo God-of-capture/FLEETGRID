@@ -64,3 +64,8 @@ async def send_delivery_status_email(to: str, customer_name: str, tracking_code:
     url = f"{APP_URL}/track/{tracking_code}"
     body = f"<p>Hi {customer_name},</p><p>Your shipment <b style='font-family:monospace'>{tracking_code}</b> is now <b>{pretty}</b>.</p>"
     await _send(to, f"Shipment {tracking_code} · {pretty}", _wrap(f"Shipment is {pretty}", body, {"url": url, "label": "Track shipment"}))
+
+
+async def send_generic(to: str, subject: str, body_text: str) -> None:
+    body = f"<p>{body_text}</p>"
+    await _send(to, subject, _wrap(subject, body))

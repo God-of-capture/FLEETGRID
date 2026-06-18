@@ -14,6 +14,7 @@ const navByRole = {
     { to: "/app/live-map", label: "Live Map", Icon: MapTrifold },
     { to: "/app/fleet", label: "Fleet", Icon: Truck },
     { to: "/app/drivers", label: "Drivers", Icon: UserCircle },
+    { to: "/app/verification", label: "Verification", Icon: ClipboardText },
     { to: "/app/customers", label: "Customers", Icon: Users },
     { to: "/app/analytics", label: "Analytics", Icon: ChartBar },
     { to: "/app/audit", label: "Audit Logs", Icon: ClipboardText },
@@ -25,6 +26,7 @@ const navByRole = {
     { to: "/app/live-map", label: "Live Map", Icon: MapTrifold },
     { to: "/app/fleet", label: "Fleet", Icon: Truck },
     { to: "/app/drivers", label: "Drivers", Icon: UserCircle },
+    { to: "/app/verification", label: "Verification", Icon: ClipboardText },
     { to: "/app/customers", label: "Customers", Icon: Users },
     { to: "/app/analytics", label: "Analytics", Icon: ChartBar },
   ],
@@ -36,7 +38,8 @@ const navByRole = {
     { to: "/app/customers", label: "Customers", Icon: Users },
   ],
   driver: [
-    { to: "/driver", label: "My Deliveries", Icon: Package },
+    { to: "/driver/jobs", label: "Jobs & Deliveries", Icon: Package },
+    { to: "/partner/onboarding", label: "Onboarding", Icon: ClipboardText },
   ],
   customer: [
     { to: "/portal", label: "My Orders", Icon: Package },
